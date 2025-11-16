@@ -142,6 +142,159 @@ app.post('/hopper-found', (req, res) => {
     }
 });
 
+// 🔥 NOVO ENDPOINT PARA RECEBER PETS DO SEU SCRIPT (XOR ENCRYPTED)
+app.post('/job', (req, res) => {
+    try {
+        console.log('🔐 Job recebido (criptografado):', JSON.stringify(req.body));
+        
+        const { 
+            jobId1M, 
+            jobId5M, 
+            jobId10M, 
+            jobId50M, 
+            jobId100M, 
+            jobId300M 
+        } = req.body;
+
+        // Determinar qual jobId foi enviado e seu valor correspondente
+        let encryptedJobId, numericValue, tier;
+        
+        if (jobId1M) {
+            encryptedJobId = jobId1M;
+            numericValue = 2000000; // Valor médio para 1M-4.99M
+            tier = "NORMAL";
+        } else if (jobId5M) {
+            encryptedJobId = jobId5M;
+            numericValue = 7500000; // Valor médio para 5M-9.99M
+            tier = "NORMAL";
+        } else if (jobId10M) {
+            encryptedJobId = jobId10M;
+            numericValue = 30000000; // Valor médio para 10M-49.99M
+            tier = "HIGH";
+        } else if (jobId50M) {
+            encryptedJobId = jobId50M;
+            numericValue = 75000000; // Valor médio para 50M-99.99M
+            tier = "HIGH";
+        } else if (jobId100M) {
+            encryptedJobId = jobId100M;
+            numericValue = 200000000; // Valor médio para 100M-299.99M
+            tier = "HIGH";
+        } else if (jobId300M) {
+            encryptedJobId = jobId300M;
+            numericValue = 400000000; // Valor para 300M+
+            tier = "SECRETS_GOATS";
+        } else {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Nenhum jobId válido encontrado' 
+            });
+        }
+
+        // Decodificar o jobId (simulação - na prática você usaria a chave XOR)
+        let jobId;
+        try {
+            // Simulação de decodificação - substitua pela sua lógica XOR real
+            jobId = Buffer.from(encryptedJobId, 'hex').toString('utf8');
+            // Se a decodificação falhar, usar o encrypted como fallback
+            if (!jobId || jobId.length === 0) {
+                jobId = encryptedJobId;
+            }
+        } catch (decodeError) {
+            jobId = encryptedJobId;
+        }
+
+        // Criar objeto do pet no formato do seu script
+        const petData = {
+            id: Date.now().toString(),
+            brainrotName: "Secret Pet", // Nome padrão pois não vem no payload
+            valuePerSecond: formatValue(numericValue), // Formatar como "200K", "5M", etc.
+            valueNum: numericValue,
+            tier: tier,
+            jobId: jobId,
+            originalJobId: jobId,
+            plotOwner: "Auto-Detected",
+            playersOnline: "Unknown",
+            hopperName: "Brainrot Scanner",
+            timestamp: new Date().toISOString(),
+            source: "script",
+            encrypted: true,
+            originalEncryptedId: encryptedJobId
+        };
+
+        // Adicionar ao armazenamento
+        brainrotStore[tier].unshift(petData);
+        
+        // Manter apenas os últimos 20 por tier
+        if (brainrotStore[tier].length > 20) {
+            brainrotStore[tier] = brainrotStore[tier].slice(0, 20);
+        }
+
+        // Atualizar estatísticas
+        serverStats.totalNotifications++;
+        if (numericValue > serverStats.highestValueFound) {
+            serverStats.highestValueFound = numericValue;
+        }
+
+        console.log(`✅ Pet do script registrado: ${tier} - ${formatValue(numericValue)} - Job: ${jobId.substring(0, 10)}...`);
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Job recebido e processado',
+            tier: tier,
+            value: numericValue,
+            petId: petData.id
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no endpoint /job:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro interno: ' + error.message 
+        });
+    }
+});
+
+// 🔥 NOVO ENDPOINT PARA STATUS (LOGIN DO SCRIPT)
+app.post('/status', (req, res) => {
+    try {
+        const { nome } = req.body;
+
+        if (!nome) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Nome é obrigatório' 
+            });
+        }
+
+        console.log(`👤 Status registrado: ${nome}`);
+
+        // Registrar no log
+        const logEntry = {
+            username: nome,
+            executor: "Brainrot Scanner",
+            timestamp: new Date().toISOString(),
+            type: "status"
+        };
+        
+        brainrotStore.LOGS.unshift(logEntry);
+        if (brainrotStore.LOGS.length > 100) {
+            brainrotStore.LOGS = brainrotStore.LOGS.slice(0, 100);
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Status registrado'
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no endpoint /status:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro interno' 
+        });
+    }
+});
+
 // 🎯 Endpoint para auto-join
 app.get('/autojoin/:tier', (req, res) => {
     try {
@@ -269,6 +422,19 @@ app.post('/notify', (req, res) => {
     }
 });
 
+// 🔥 FUNÇÃO AUXILIAR PARA FORMATAR VALORES
+function formatValue(value) {
+    if (value >= 1000000000) {
+        return (value / 1000000000).toFixed(1) + 'B';
+    } else if (value >= 1000000) {
+        return (value / 1000000).toFixed(1) + 'M';
+    } else if (value >= 1000) {
+        return (value / 1000).toFixed(1) + 'K';
+    } else {
+        return value.toString();
+    }
+}
+
 // Limpeza automática de dados antigos
 setInterval(() => {
     try {
@@ -314,6 +480,8 @@ app.listen(PORT, () => {
     console.log(`🚀 NEX HUB API rodando na porta ${PORT}`);
     console.log(`📊 Endpoints disponíveis:`);
     console.log(`   POST /hopper-found  → Pets encontrados por hoppers`);
+    console.log(`   POST /job           → Jobs criptografados do script`);
+    console.log(`   POST /status        → Status/login do script`);
     console.log(`   GET  /autojoin/:tier → Pets para auto-join`);
     console.log(`   GET  /stats         → Estatísticas`);
     console.log(`   POST /login         → Logs de usuário`);
@@ -321,3 +489,4 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
