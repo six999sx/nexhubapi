@@ -142,7 +142,7 @@ app.post('/hopper-found', (req, res) => {
     }
 });
 
-// 🔥 NOVO ENDPOINT PARA RECEBER PETS DO SEU SCRIPT (XOR ENCRYPTED)
+// 🔥 ENDPOINT ATUALIZADO PARA RECEBER PETS DO SEU SCRIPT COM NOME REAL
 app.post('/job', (req, res) => {
     try {
         console.log('🔐 Job recebido (criptografado):', JSON.stringify(req.body));
@@ -153,35 +153,39 @@ app.post('/job', (req, res) => {
             jobId10M, 
             jobId50M, 
             jobId100M, 
-            jobId300M 
+            jobId300M,
+            // 🔥 NOVOS CAMPOS PARA NOME E RARIDADE
+            petName,
+            rarity,
+            valuePerSecond
         } = req.body;
 
         // Determinar qual jobId foi enviado e seu valor correspondente
-        let encryptedJobId, numericValue, tier;
+        let encryptedJobId, numericValue, tier, brainrotName;
         
         if (jobId1M) {
             encryptedJobId = jobId1M;
-            numericValue = 2000000; // Valor médio para 1M-4.99M
+            numericValue = 2000000;
             tier = "NORMAL";
         } else if (jobId5M) {
             encryptedJobId = jobId5M;
-            numericValue = 7500000; // Valor médio para 5M-9.99M
+            numericValue = 7500000;
             tier = "NORMAL";
         } else if (jobId10M) {
             encryptedJobId = jobId10M;
-            numericValue = 30000000; // Valor médio para 10M-49.99M
+            numericValue = 30000000;
             tier = "HIGH";
         } else if (jobId50M) {
             encryptedJobId = jobId50M;
-            numericValue = 75000000; // Valor médio para 50M-99.99M
+            numericValue = 75000000;
             tier = "HIGH";
         } else if (jobId100M) {
             encryptedJobId = jobId100M;
-            numericValue = 200000000; // Valor médio para 100M-299.99M
+            numericValue = 200000000;
             tier = "HIGH";
         } else if (jobId300M) {
             encryptedJobId = jobId300M;
-            numericValue = 400000000; // Valor para 300M+
+            numericValue = 400000000;
             tier = "SECRETS_GOATS";
         } else {
             return res.status(400).json({ 
@@ -190,12 +194,39 @@ app.post('/job', (req, res) => {
             });
         }
 
-        // Decodificar o jobId (simulação - na prática você usaria a chave XOR)
+        // 🔥 USAR O NOME REAL DO PET SE DISPONÍVEL
+        if (petName && petName !== "Unknown") {
+            brainrotName = petName;
+        } else {
+            // Gerar nome baseado na raridade e valor
+            brainrotName = generatePetName(rarity, numericValue);
+        }
+
+        // 🔥 USAR O VALOR REAL SE DISPONÍVEL
+        let finalValuePerSecond;
+        if (valuePerSecond && valuePerSecond !== "0") {
+            finalValuePerSecond = valuePerSecond;
+            // Tentar extrair valor numérico do valuePerSecond
+            const extractedValue = extractValueFromString(valuePerSecond);
+            if (extractedValue > 0) {
+                numericValue = extractedValue;
+                // Reclassificar tier baseado no valor real
+                if (numericValue >= 400000000) {
+                    tier = "SECRETS_GOATS";
+                } else if (numericValue >= 10000000) {
+                    tier = "HIGH";
+                } else if (numericValue >= 500000) {
+                    tier = "NORMAL";
+                }
+            }
+        } else {
+            finalValuePerSecond = formatValue(numericValue);
+        }
+
+        // Decodificar o jobId
         let jobId;
         try {
-            // Simulação de decodificação - substitua pela sua lógica XOR real
             jobId = Buffer.from(encryptedJobId, 'hex').toString('utf8');
-            // Se a decodificação falhar, usar o encrypted como fallback
             if (!jobId || jobId.length === 0) {
                 jobId = encryptedJobId;
             }
@@ -203,11 +234,11 @@ app.post('/job', (req, res) => {
             jobId = encryptedJobId;
         }
 
-        // Criar objeto do pet no formato do seu script
+        // Criar objeto do pet com nome real
         const petData = {
             id: Date.now().toString(),
-            brainrotName: "Secret Pet", // Nome padrão pois não vem no payload
-            valuePerSecond: formatValue(numericValue), // Formatar como "200K", "5M", etc.
+            brainrotName: brainrotName,
+            valuePerSecond: finalValuePerSecond,
             valueNum: numericValue,
             tier: tier,
             jobId: jobId,
@@ -218,7 +249,8 @@ app.post('/job', (req, res) => {
             timestamp: new Date().toISOString(),
             source: "script",
             encrypted: true,
-            originalEncryptedId: encryptedJobId
+            originalEncryptedId: encryptedJobId,
+            rarity: rarity || "Secret" // 🔥 ADICIONAR RARIDADE
         };
 
         // Adicionar ao armazenamento
@@ -235,12 +267,13 @@ app.post('/job', (req, res) => {
             serverStats.highestValueFound = numericValue;
         }
 
-        console.log(`✅ Pet do script registrado: ${tier} - ${formatValue(numericValue)} - Job: ${jobId.substring(0, 10)}...`);
+        console.log(`✅ Pet do script registrado: ${brainrotName} - ${finalValuePerSecond} - ${tier} - Job: ${jobId.substring(0, 10)}...`);
 
         res.status(200).json({ 
             success: true, 
             message: 'Job recebido e processado',
             tier: tier,
+            petName: brainrotName,
             value: numericValue,
             petId: petData.id
         });
@@ -254,7 +287,98 @@ app.post('/job', (req, res) => {
     }
 });
 
-// 🔥 NOVO ENDPOINT PARA STATUS (LOGIN DO SCRIPT)
+// 🔥 ENDPOINT PARA NOTIFICAÇÕES COMPLETAS DO SCRIPT
+app.post('/notify-script', (req, res) => {
+    try {
+        console.log('🔔 Notificação completa do script:', JSON.stringify(req.body));
+        
+        const { 
+            brainrotName, 
+            valuePerSecond, 
+            valueNum, 
+            jobId, 
+            rarity,
+            playersOnline 
+        } = req.body;
+
+        // Validar campos obrigatórios
+        if (!brainrotName || !jobId) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Campos obrigatórios faltando: brainrotName, jobId' 
+            });
+        }
+
+        // Converter valueNum para número
+        const numericValue = typeof valueNum === 'string' ? parseFloat(valueNum) : (valueNum || 0);
+        if (numericValue < 500000) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Valor muito baixo: ' + numericValue 
+            });
+        }
+
+        // Determinar tier
+        let tier;
+        if (numericValue >= 400000000) {
+            tier = "SECRETS_GOATS";
+        } else if (numericValue >= 10000000) {
+            tier = "HIGH";
+        } else {
+            tier = "NORMAL";
+        }
+
+        // Criar objeto do pet com todos os dados
+        const petData = {
+            id: Date.now().toString(),
+            brainrotName: brainrotName,
+            valuePerSecond: valuePerSecond || formatValue(numericValue),
+            valueNum: numericValue,
+            tier: tier,
+            jobId: jobId,
+            originalJobId: jobId,
+            plotOwner: "Auto-Detected",
+            playersOnline: playersOnline || "Unknown",
+            hopperName: "Brainrot Scanner",
+            timestamp: new Date().toISOString(),
+            source: "script",
+            rarity: rarity || "Secret"
+        };
+
+        // Adicionar ao armazenamento
+        brainrotStore[tier].unshift(petData);
+        
+        // Manter apenas os últimos 20 por tier
+        if (brainrotStore[tier].length > 20) {
+            brainrotStore[tier] = brainrotStore[tier].slice(0, 20);
+        }
+
+        // Atualizar estatísticas
+        serverStats.totalNotifications++;
+        if (numericValue > serverStats.highestValueFound) {
+            serverStats.highestValueFound = numericValue;
+        }
+
+        console.log(`✅ Notificação do script registrada: ${brainrotName} - ${valuePerSecond} - ${tier}`);
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Notificação registrada com sucesso',
+            tier: tier,
+            petName: brainrotName,
+            petId: petData.id
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no endpoint /notify-script:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro interno: ' + error.message 
+        });
+    }
+});
+
+// Status endpoint
 app.post('/status', (req, res) => {
     try {
         const { nome } = req.body;
@@ -268,7 +392,6 @@ app.post('/status', (req, res) => {
 
         console.log(`👤 Status registrado: ${nome}`);
 
-        // Registrar no log
         const logEntry = {
             username: nome,
             executor: "Brainrot Scanner",
@@ -422,7 +545,41 @@ app.post('/notify', (req, res) => {
     }
 });
 
-// 🔥 FUNÇÃO AUXILIAR PARA FORMATAR VALORES
+// 🔥 FUNÇÕES AUXILIARES PARA NOMES DE PETS
+function generatePetName(rarity, value) {
+    const secretNames = [
+        "Diamond Dragon", "Golden Phoenix", "Ruby Unicorn", 
+        "Sapphire Griffin", "Emerald Kraken", "Platinum Hydra",
+        "Crystal Wolf", "Obsidian Tiger", "Amethyst Eagle",
+        "Topaz Bear", "Jade Lion", "Onyx Panther"
+    ];
+    
+    const ogNames = [
+        "OG Dragon", "Void Phoenix", "Alpha Wolf", 
+        "Beta Tiger", "Gamma Eagle", "Delta Bear",
+        "Omega Lion", "Infinity Panther", "Eternal Kraken"
+    ];
+    
+    if (rarity === "OG") {
+        return ogNames[Math.floor(Math.random() * ogNames.length)];
+    } else {
+        return secretNames[Math.floor(Math.random() * secretNames.length)];
+    }
+}
+
+function extractValueFromString(valueString) {
+    if (!valueString) return 0;
+    
+    const match = valueString.match(/[0-9.]+/);
+    if (!match) return 0;
+    
+    const number = parseFloat(match[0]);
+    if (valueString.includes('B')) return number * 1000000000;
+    if (valueString.includes('M')) return number * 1000000;
+    if (valueString.includes('K')) return number * 1000;
+    return number;
+}
+
 function formatValue(value) {
     if (value >= 1000000000) {
         return (value / 1000000000).toFixed(1) + 'B';
@@ -479,14 +636,16 @@ app.use((req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 NEX HUB API rodando na porta ${PORT}`);
     console.log(`📊 Endpoints disponíveis:`);
-    console.log(`   POST /hopper-found  → Pets encontrados por hoppers`);
-    console.log(`   POST /job           → Jobs criptografados do script`);
-    console.log(`   POST /status        → Status/login do script`);
+    console.log(`   POST /hopper-found   → Pets encontrados por hoppers`);
+    console.log(`   POST /job            → Jobs criptografados do script`);
+    console.log(`   POST /notify-script  → Notificações completas do script`);
+    console.log(`   POST /status         → Status/login do script`);
     console.log(`   GET  /autojoin/:tier → Pets para auto-join`);
-    console.log(`   GET  /stats         → Estatísticas`);
-    console.log(`   POST /login         → Logs de usuário`);
-    console.log(`   POST /notify        → Notificações`);
+    console.log(`   GET  /stats          → Estatísticas`);
+    console.log(`   POST /login          → Logs de usuário`);
+    console.log(`   POST /notify         → Notificações`);
 });
 
 module.exports = app;
+
 
